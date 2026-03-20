@@ -12,7 +12,7 @@ import { useState, useEffect, useCallback } from "react";
 // =========================
 
 // Express API base URL — must match server.js PORT
-const API_URL = "http://localhost:3000";
+const API_URL = import.meta.env.VITE_API_URL || "";
 
 // Shown when the API is offline
 const FALLBACK_QUOTES = [
@@ -86,10 +86,11 @@ export default function QuoteGenerator() {
             if (!res.ok) throw new Error("Bad response");
 
             const data = await res.json();
+            if (data.length === 0) throw new Error("Empty");
 
             setQuotes(data);
             setApiOnline(true);
-            setCurrent(data.length > 0 ? pickRandom(data) : null);
+            setCurrent(pickRandom(data));
         } catch {
             setApiOnline(false);
             setQuotes(FALLBACK_QUOTES);

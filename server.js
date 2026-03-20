@@ -41,7 +41,9 @@ console.log("✅ Database ready");
 // MIDDLEWARE
 // =========================
 
-app.use(cors());
+app.use(cors({
+    origin: ["https://quotes-two-beta.vercel.app", "http://localhost:5173"],
+}));
 app.use(express.json());
 app.use(morgan("dev"));
 

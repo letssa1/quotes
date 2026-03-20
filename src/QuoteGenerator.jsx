@@ -86,11 +86,10 @@ export default function QuoteGenerator() {
             if (!res.ok) throw new Error("Bad response");
 
             const data = await res.json();
-            if (data.length === 0) throw new Error("Empty");
 
             setQuotes(data);
             setApiOnline(true);
-            setCurrent(pickRandom(data));
+            setCurrent(data.length > 0 ? pickRandom(data) : null);
         } catch {
             setApiOnline(false);
             setQuotes(FALLBACK_QUOTES);

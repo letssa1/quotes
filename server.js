@@ -1,17 +1,41 @@
 // ======================================================
 // server.js — Quote API
-// Express + MongoDB (Mongoose)
-// Routes: GET /quotes, POST /quotes, DELETE /quotes/:id
+// Express + PostgreSQL (pg)
+// Routes: GET /quotes, GET /random, POST /quotes, DELETE /quotes/:id
 // ======================================================
 
 import "dotenv/config";
-import express  from "express";
-import cors     from "cors";
-import morgan   from "morgan";
-import mongoose from "mongoose";
+import express from "express";
+import cors    from "cors";
+import morgan  from "morgan";
+import pg      from "pg";
 
+const { Pool } = pg;
 const app  = express();
 const PORT = process.env.PORT || 3000;
+
+
+// =========================
+// DB CONNECTION
+// =========================
+
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }, // required for Railway
+});
+
+// Create table if it doesn't exist
+await pool.query(`
+    CREATE TABLE IF NOT EXISTS quotes (
+        id         SERIAL PRIMARY KEY,
+        quote      TEXT        NOT NULL,
+        author     TEXT        NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+`);
+
+console.log("✅ Database ready");
+
 
 // =========================
 // MIDDLEWARE
@@ -20,21 +44,6 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(morgan("dev"));
-
-
-// =========================
-// SCHEMA + MODEL
-// =========================
-
-const quoteSchema = new mongoose.Schema(
-    {
-        quote:  { type: String, required: true, trim: true },
-        author: { type: String, required: true, trim: true },
-    },
-    { timestamps: true }
-);
-
-const Quote = mongoose.model("Quote", quoteSchema);
 
 
 // =========================
@@ -47,10 +56,10 @@ app.get("/", (req, res) => {
         status: "ok",
         message: "Quote API is running",
         endpoints: {
-            getAllQuotes:   "GET    /quotes",
-            getRandomQuote:"GET    /random",
-            createQuote:   "POST   /quotes",
-            deleteQuote:   "DELETE /quotes/:id",
+            getAllQuotes:    "GET    /quotes",
+            getRandomQuote: "GET    /random",
+            createQuote:    "POST   /quotes",
+            deleteQuote:    "DELETE /quotes/:id",
         },
     });
 });
@@ -58,21 +67,19 @@ app.get("/", (req, res) => {
 // Get all quotes
 app.get("/quotes", async (req, res) => {
     try {
-        const quotes = await Quote.find();
-        res.status(200).json(quotes);
+        const { rows } = await pool.query("SELECT * FROM quotes ORDER BY created_at DESC");
+        res.status(200).json(rows);
     } catch (err) {
         res.status(500).json({ error: "Failed to retrieve quotes", message: err.message });
     }
 });
 
-// Get a random quote (memory-efficient: uses countDocuments + skip)
+// Get a random quote
 app.get("/random", async (req, res) => {
     try {
-        const count = await Quote.countDocuments();
-        if (count === 0) return res.status(404).json({ error: "No quotes found" });
-
-        const random = await Quote.findOne().skip(Math.floor(Math.random() * count));
-        res.status(200).json(random);
+        const { rows } = await pool.query("SELECT * FROM quotes ORDER BY RANDOM() LIMIT 1");
+        if (!rows.length) return res.status(404).json({ error: "No quotes found" });
+        res.status(200).json(rows[0]);
     } catch (err) {
         res.status(500).json({ error: "Failed to retrieve random quote", message: err.message });
     }
@@ -90,10 +97,12 @@ app.post("/quotes", async (req, res) => {
             });
         }
 
-        const newQuote = new Quote({ quote, author });
-        await newQuote.save();
+        const { rows } = await pool.query(
+            "INSERT INTO quotes (quote, author) VALUES ($1, $2) RETURNING *",
+            [quote, author]
+        );
 
-        res.status(201).json({ message: "Quote created successfully", data: newQuote });
+        res.status(201).json({ message: "Quote created successfully", data: rows[0] });
     } catch (err) {
         res.status(500).json({ error: "Failed to create quote", message: err.message });
     }
@@ -102,9 +111,12 @@ app.post("/quotes", async (req, res) => {
 // Delete a quote by ID
 app.delete("/quotes/:id", async (req, res) => {
     try {
-        const deleted = await Quote.findByIdAndDelete(req.params.id);
+        const { rowCount } = await pool.query(
+            "DELETE FROM quotes WHERE id = $1",
+            [req.params.id]
+        );
 
-        if (!deleted) {
+        if (rowCount === 0) {
             return res.status(404).json({ error: "Quote not found" });
         }
 
@@ -116,17 +128,9 @@ app.delete("/quotes/:id", async (req, res) => {
 
 
 // =========================
-// START — DB first, then server
+// START
 // =========================
 
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => {
-        console.log("✅ Database connection established");
-        app.listen(PORT, () => {
-            console.log(`🚀 Server running on http://localhost:${PORT}`);
-        });
-    })
-    .catch((err) => {
-        console.error("❌ Database connection failed:", err.message);
-        process.exit(1);
-    });
+app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+});
